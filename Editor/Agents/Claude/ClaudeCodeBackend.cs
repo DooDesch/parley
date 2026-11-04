@@ -22,12 +22,27 @@ namespace DTech.Parley.Editor.Agents.Claude
 		private const int ControlTimeoutMs = 30000;
 		private const double RateLimitRefreshSeconds = 30.0;
 		private const int GracefulExitMs = 3000;
+		private const int InterruptWatchdogMs = 10000;
 		private const string AllowBypassFlag = "--allow-dangerously-skip-permissions";
 		private const string RestrictedFlag = "--restricted";
 		private const string RestrictedVariable = "CLAUDE_CODE_RESTRICTED";
 
 		private static readonly string[] Efforts = { "low", "medium", "high", "xhigh", "max" };
 		private static readonly string[] RestrictedTruthyValues = { "1", "true", "yes", "on" };
+
+		// Phrases the CLI prints on stderr when it exits because it has no valid sign-in. Generic words such as
+		// "login" or "unauthorized" also show up in MCP server and hook errors, so they are not used.
+		private static readonly string[] SignInProblemPhrases =
+		{
+			"/login",
+			"not logged in",
+			"invalid api key",
+			"invalid x-api-key",
+			"authentication_error",
+			"authentication failed",
+			"oauth token has expired",
+			"oauth token has been revoked",
+		};
 
 		private static string _warnedOutdatedExecutable;
 
@@ -75,6 +90,7 @@ namespace DTech.Parley.Editor.Agents.Claude
 		private bool _rateLimitsLoading;
 		private DateTime _rateLimitsFetchedAt = DateTime.MinValue;
 		private int _requestCounter;
+		private int _turnGeneration;
 
 		public ClaudeCodeBackend(
 			ParleyProfile profile,
@@ -117,6 +133,25 @@ namespace DTech.Parley.Editor.Agents.Claude
 			foreach (string truthy in RestrictedTruthyValues)
 			{
 				if (string.Equals(value, truthy, StringComparison.OrdinalIgnoreCase))
+				{
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		public static bool LooksLikeSignInProblem(string stderr)
+		{
+			if (string.IsNullOrEmpty(stderr))
+			{
+				return false;
+			}
+
+			string lower = stderr.ToLowerInvariant();
+			foreach (string phrase in SignInProblemPhrases)
+			{
+				if (lower.Contains(phrase))
 				{
 					return true;
 				}
@@ -227,21 +262,29 @@ namespace DTech.Parley.Editor.Agents.Claude
 				_sink.RequestCancelled(request.Id);
 			}
 
-			if (IsRunning)
+			if (!IsRunning)
 			{
-				FireControl(new JObject { ["subtype"] = "interrupt" });
+				return;
 			}
+
+			if (IsBusy)
+			{
+				_mapper.MarkInterruptRequested();
+				_ = WatchInterruptAsync(_turnGeneration);
+			}
+
+			FireControl(new JObject { ["subtype"] = "interrupt" });
 		}
 
 		public void SetPermissionMode(PermissionMode mode)
 		{
+			PermissionMode previous = Mode;
 			Mode = mode;
+			_sink.ModeChanged(mode);
 			if (IsRunning)
 			{
-				FireControl(new JObject { ["subtype"] = "set_permission_mode", ["mode"] = PermissionModes.ToWire(mode) });
+				_ = ApplyPermissionModeAsync(mode, previous);
 			}
-
-			_sink.ModeChanged(mode);
 		}
 
 		public void SetModel(string model)
@@ -426,7 +469,7 @@ namespace DTech.Parley.Editor.Agents.Claude
 			}
 		}
 
-		private static async Task WarnIfOutdatedAsync(string executable, string path)
+		private async Task WarnIfOutdatedAsync(string executable, string path)
 		{
 			if (executable == _warnedOutdatedExecutable)
 			{
@@ -437,8 +480,10 @@ namespace DTech.Parley.Editor.Agents.Claude
 			if (ClaudeCliLocator.IsOutdated(version))
 			{
 				_warnedOutdatedExecutable = executable;
-				Debug.LogWarning("[Parley] Claude Code CLI " + version + " at " + executable + " is older than " + ClaudeCliLocator.MinimumVersion +
-					". Run 'claude update' or remove this install.");
+				string warning = "Claude Code CLI " + version + " at " + executable + " is older than " + ClaudeCliLocator.MinimumVersion +
+					". Run 'claude update' or remove this install.";
+				Debug.LogWarning("[Parley] " + warning);
+				_sink.Notice(NoticeLevel.Warning, warning);
 			}
 		}
 
@@ -505,7 +550,13 @@ namespace DTech.Parley.Editor.Agents.Claude
 			}
 			catch (TimeoutException)
 			{
+				Debug.LogWarning("[Parley] Claude Code did not answer the initialize request within " + InitializeTimeoutMs / 1000 + " s.");
 				_sink.Notice(NoticeLevel.Warning, "Claude Code did not answer the initialize request; continuing without model and command lists.");
+			}
+
+			if (!IsRunning)
+			{
+				Debug.LogWarning("[Parley] Claude Code exited during startup; MCP setup skipped.");
 				return;
 			}
 
@@ -728,6 +779,7 @@ namespace DTech.Parley.Editor.Agents.Claude
 			}
 			catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException)
 			{
+				Debug.LogWarning("[Parley] Could not delete " + _settingsPath + ": " + exception.Message);
 			}
 
 			_settingsPath = null;
@@ -849,10 +901,52 @@ namespace DTech.Parley.Editor.Agents.Claude
 					_sink.ContextUsage(total, max);
 				}
 			}
-			catch (Exception)
+			catch (Exception exception)
 			{
 				_contextUsageUnavailable = IsRunning;
+				Debug.LogWarning("[Parley] Could not read context usage" + (_contextUsageUnavailable ? " (disabled for this process)" : string.Empty) + ": " + exception.Message);
 			}
+		}
+
+		private async Task ApplyPermissionModeAsync(PermissionMode mode, PermissionMode previous)
+		{
+			try
+			{
+				JObject response = await SendControlAsync(new JObject { ["subtype"] = "set_permission_mode", ["mode"] = PermissionModes.ToWire(mode) }, ControlTimeoutMs);
+				string applied = (string)response["mode"];
+				if (!string.IsNullOrEmpty(applied) && Mode == mode && PermissionModes.FromWire(applied) != mode)
+				{
+					Mode = PermissionModes.FromWire(applied);
+					_sink.ModeChanged(Mode);
+				}
+			}
+			catch (Exception exception)
+			{
+				Debug.LogWarning("[Parley] set_permission_mode " + PermissionModes.ToWire(mode) + " failed: " + exception.Message);
+				if (Mode == mode)
+				{
+					Mode = previous;
+					_sink.ModeChanged(previous);
+				}
+
+				_sink.Notice(NoticeLevel.Warning, "Could not switch the permission mode: " + exception.Message);
+			}
+		}
+
+		private async Task WatchInterruptAsync(int generation)
+		{
+			await Task.Delay(InterruptWatchdogMs);
+			if (_disposed || generation != _turnGeneration || !IsBusy || !IsRunning)
+			{
+				return;
+			}
+
+			Debug.LogWarning("[Parley] Claude Code did not stop within " + InterruptWatchdogMs / 1000 + " s after an interrupt; restarting it.");
+			_resumeSessionId = SessionId;
+			_mapper.AbandonTurn();
+			StopProcess();
+			_sink.Notice(NoticeLevel.Warning, "Claude Code did not stop within " + InterruptWatchdogMs / 1000 + " s, so Parley restarted it. The next message continues the conversation.");
+			_sink.TurnCompleted(new TurnResult { IsError = true, WasInterrupted = true, Subtype = "interrupted" });
 		}
 
 		private async Task RefreshRateLimitsAsync(bool force)
@@ -878,12 +972,14 @@ namespace DTech.Parley.Editor.Agents.Claude
 					_sink.RateLimitsChanged(limits);
 				}
 			}
-			catch (TimeoutException)
+			catch (TimeoutException exception)
 			{
+				Debug.LogWarning("[Parley] " + exception.Message + " Rate limits are retried on the next refresh.");
 			}
-			catch (Exception)
+			catch (Exception exception)
 			{
 				_rateLimitsUnavailable = IsRunning;
+				Debug.LogWarning("[Parley] Could not read rate limits" + (_rateLimitsUnavailable ? " (disabled for this process)" : string.Empty) + ": " + exception.Message);
 			}
 			finally
 			{
@@ -975,9 +1071,11 @@ namespace DTech.Parley.Editor.Agents.Claude
 			}
 			catch (OperationCanceledException)
 			{
+				Debug.Log("[Parley] Resending the last message was cancelled because the chat closed.");
 			}
 			catch (Exception exception)
 			{
+				Debug.LogError("[Parley] Could not resend the last message after starting a new session: " + exception.Message);
 				_sink.Notice(NoticeLevel.Error, exception.Message);
 				_sink.TurnCompleted(new TurnResult { IsError = true, Subtype = "error" });
 			}
@@ -1042,6 +1140,7 @@ namespace DTech.Parley.Editor.Agents.Claude
 			}
 			catch (Exception exception)
 			{
+				Debug.LogError("[Parley] Unity tool call " + (string)message["method"] + " failed: " + exception);
 				response = SdkMcpBridge.Error(message["id"], -32603, exception.Message);
 			}
 
@@ -1082,8 +1181,14 @@ namespace DTech.Parley.Editor.Agents.Claude
 
 		private void StdoutLineHandler(string line)
 		{
-			if (string.IsNullOrWhiteSpace(line) || line[0] != '{')
+			if (string.IsNullOrWhiteSpace(line))
 			{
+				return;
+			}
+
+			if (line[0] != '{')
+			{
+				Debug.Log("[Parley] Claude Code stdout: " + line);
 				return;
 			}
 
@@ -1092,8 +1197,9 @@ namespace DTech.Parley.Editor.Agents.Claude
 			{
 				message = JObject.Parse(line);
 			}
-			catch (JsonException)
+			catch (JsonException exception)
 			{
+				Debug.LogWarning("[Parley] Dropped an unreadable Claude Code message (" + exception.Message + "): " + (line.Length > 500 ? line.Substring(0, 500) + "…" : line));
 				return;
 			}
 
@@ -1137,6 +1243,11 @@ namespace DTech.Parley.Editor.Agents.Claude
 					return;
 				}
 
+				if (type == "result")
+				{
+					_turnGeneration++;
+				}
+
 				_mapper.Handle(message);
 				if (type == "result")
 				{
@@ -1162,26 +1273,35 @@ namespace DTech.Parley.Editor.Agents.Claude
 
 			ProcessJanitor.Untrack(process.ProcessId);
 			string stderr = process.RecentStderr;
+			bool turnInFlight = IsBusy;
 			Detach(process);
 			process.Dispose();
 			if (_disposed)
 			{
+				Debug.Log("[Parley] Claude Code exited with code " + code + " after the chat closed.");
 				return;
 			}
 
+			Debug.LogWarning("[Parley] Claude Code exited with code " + code + (turnInFlight ? " during a turn" : string.Empty)
+				+ (stderr.Length > 0 ? ":\n" + LastLines(stderr, 12) : "."));
 			if (_resumeSessionId != null && stderr.Contains(ClaudeWire.MissingConversation))
 			{
 				RecoverFromMissingConversation();
 				return;
 			}
 
-			string lower = stderr.ToLowerInvariant();
-			if (lower.Contains("login") || lower.Contains("api key") || lower.Contains("authenticat") || lower.Contains("unauthorized"))
+			if (LooksLikeSignInProblem(stderr))
 			{
 				_sink.AuthRequired(LastLines(stderr, 6));
 			}
 
 			_sink.Exited("Claude Code exited with code " + code + (stderr.Length > 0 ? ":\n" + LastLines(stderr, 12) : "."), true);
+			if (turnInFlight)
+			{
+				_turnGeneration++;
+				_mapper.AbandonTurn();
+				_sink.TurnCompleted(new TurnResult { IsError = true, Subtype = "exited" });
+			}
 		}
 	}
 }
