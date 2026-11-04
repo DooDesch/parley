@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using DTech.Parley.Editor;
 using DTech.Parley.Editor.Panels;
 using NUnit.Framework;
 using UnityEngine;
@@ -65,7 +66,7 @@ namespace DTech.Parley.Tests.EditorMode
         public void ComponentOnNonGameObjectIsError()
         {
             List<PanelIssue> issues = new ();
-            PanelSpec spec = Parse(@"{ ""title"": ""T"", ""targets"": { ""cfg"": """ + _config.GetInstanceID() + @""" },
+            PanelSpec spec = Parse(@"{ ""title"": ""T"", ""targets"": { ""cfg"": """ + UnityObjectPaths.EntityIdReference(_config) + @""" },
                 ""items"": [ { ""type"": ""inspector"", ""target"": ""cfg"", ""component"": ""Rigidbody"" } ] }");
             PanelTargets.Validate(spec, issues);
 
@@ -161,7 +162,7 @@ namespace DTech.Parley.Tests.EditorMode
         private List<PanelIssue> Validate(params string[] items)
         {
             List<PanelIssue> issues = new ();
-            PanelSpec spec = Parse(@"{ ""title"": ""T"", ""targets"": { ""cfg"": """ + _config.GetInstanceID() + @""" }, ""items"": [" + string.Join(",", items) + "] }");
+            PanelSpec spec = Parse(@"{ ""title"": ""T"", ""targets"": { ""cfg"": """ + UnityObjectPaths.EntityIdReference(_config) + @""" }, ""items"": [" + string.Join(",", items) + "] }");
             PanelTargets.Validate(spec, issues);
             return issues;
         }

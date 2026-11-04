@@ -12,7 +12,7 @@ namespace DTech.Parley.Editor.Panels
 
 		public const string Reference =
 			"Panel spec (JSON object): { \"title\": string, \"targets\": { alias: ref }, \"items\": [item...] }.\n" +
-			"ref = asset path ('Assets/...'), GUID, instance id or hierarchy path ('Scene:Root/Child').\n" +
+			"ref = asset path ('Assets/...'), GUID, numeric entity ID or hierarchy path ('Scene:Root/Child').\n" +
 			"Items (\"type\" + fields):\n" +
 			"- header {text} | label {text} | help {text, level: info|warning|error} | separator\n" +
 			"- field {target, path, label?, component?}: one SerializedProperty by propertyPath (e.g. '_health', 'stats.speed', 'items.Array.data[0]'). Undo works.\n" +

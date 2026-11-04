@@ -1,7 +1,8 @@
-# Parley
-[![Unity Version](https://img.shields.io/badge/unity-6000.0+-000.svg)](https://unity.com/releases/editor/archive)
-![Unity Tests](https://github.com/DanilChizhikov/parley/actions/workflows/tests.yml/badge.svg?branch=master)
+# Parley for Unity 6.6
+[![Unity Version](https://img.shields.io/badge/unity-6000.6+-000.svg)](https://unity.com/releases/editor/archive)
 [![Donate](https://img.shields.io/badge/donate-DonationAlerts-f59c07.svg)](https://www.donationalerts.com/r/danilchizhikov)
+
+This fork of [Parley v0.3.1](https://github.com/DanilChizhikov/parley/tree/v0.3.1) uses Unity 6.6’s 64-bit object identifiers. Its package ID is `com.dtech.parley`, so it can replace the upstream package in an existing project.
 
 ## Overview
 Parley is an AI chat window for the Unity Editor. It works with three kinds of backends:
@@ -58,7 +59,7 @@ project info. You can attach the selection, console errors, a Scene or Game scre
 ## Getting Started
 
 ### Prerequisites
-- [Unity](https://unity.com/releases/editor/archive) 6000.0+
+- [Unity](https://unity.com/releases/editor/archive) 6000.6+
 - For Claude Code profiles: [Claude Code](https://code.claude.com/docs/en/setup) 2.1 or later
 - For Codex profiles: the [Codex CLI](https://github.com/openai/codex) (`npm install -g @openai/codex` or
   `brew install codex`). API-key profiles need 0.162.0 or later
@@ -66,14 +67,12 @@ project info. You can attach the selection, console errors, a Scene or Game scre
   (for example LM Studio or Ollama with a model such as Qwen3-Coder)
 
 ### UPM Installation
-1. Open the manifest.json file in your project's Packages folder.
-2. Add the following line to the dependencies section:
-    ```json
-    "com.dtech.parley": "https://github.com/DanilChizhikov/parley.git",
-    ```
-3. Unity will automatically import the package.
+1. Open **Window → Package Management → Package Manager → + → Install package from git URL**.
+2. Enter `https://github.com/DooDesch/parley.git#unity-6.6` and click **Install**.
+3. Wait for Unity to compile, then open **Window → DTech → Parley → AI Chat**.
 
-To pin a release, add its tag: `https://github.com/DanilChizhikov/parley.git#v0.3.1`.
+For an offline installation, use **Install package from tarball** and select the fork’s `.tgz` file.
+To edit the fork, clone it and choose **Install package from disk** with the checkout’s `package.json`.
 
 Parley depends on `com.unity.nuget.newtonsoft-json`; Unity installs it automatically.
 
@@ -104,7 +103,6 @@ Parley depends on `com.unity.nuget.newtonsoft-json`; Unity installs it automatic
 - `/` command autocomplete and `@` asset path completion
 - Sessions saved per project, which you can resume after a script reload or an editor restart
 - Script reloads are deferred while the agent works, so recompiling doesn't kill the turn
-- An update notifier in the toolbar with release notes and one-click update
 
 ## Usage
 
@@ -227,7 +225,7 @@ scripts recompile, and nothing is added to `Assets`.
 - Items: `header`, `label`, `help`, `separator`, `field` (one serialized property), `inspector` (a whole object),
   `group` / `row` (layout), `table` (one row per asset of an AssetDatabase query) and `button`.
 - Fields are bound `SerializedProperty` fields: Undo, prefab overrides and your project's property drawers work.
-- Targets are asset paths, GUIDs, instance ids or hierarchy paths (`Scene:Root/Child`). A missing scene object shows a
+- Targets are asset paths, GUIDs, session-local entity IDs or hierarchy paths (`Scene:Root/Child`). A missing scene object shows a
   placeholder with a Retry button.
 - Buttons run only built-in actions: `ping`, `select`, `open`, `save_assets`, `menu` and `create_asset`. `menu` and
   `create_asset` ask you to confirm. Panels never run code from the spec.
@@ -407,12 +405,7 @@ about 238k input-token equivalents in Parley, and 18 requests and about 244k in 
 about 340k cache reads over the turn, and a colder prompt cache on the first request took most of that back.
 
 ## Updates
-Once per editor session Parley checks for a newer release: a Git tag on GitHub, or a newer version in the registry
-when the package was installed from one. When there is one, the toolbar shows a green **Update Available** dropdown:
-
-- **What changed** shows the release notes of every version newer than yours.
-- **Update** updates the package through the Package Manager. Unity then recompiles scripts, which interrupts running
-  chats.
+Install a newer fork tarball through Package Manager, or pull the updated branch if you installed from a local checkout.
 
 ## Where Parley Stores Data
 - `Preferences/.../DTech/Parley/Settings.asset`: profiles (no secrets), MCP server library, skill settings, window

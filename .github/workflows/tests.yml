@@ -1,29 +1,26 @@
 name: Unity Tests
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - master
       - develop
+      - unity-6.6
   pull_request:
     branches:
       - master
       - develop
+      - unity-6.6
 
 permissions:
   checks: write
   contents: read
 
 jobs:
-  testPlayMode:
+  testEditMode:
     name: Test EditMode
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        projectPath:
-          - empty-unity-project
-
     steps:
       - name: Free Disk Space (GitHub Actions)
         uses: jlumbroso/free-disk-space@main
@@ -37,47 +34,8 @@ jobs:
     
       - name: Checkout repo
         uses: actions/checkout@v4
-
-      - name: Clone empty Unity project
-        run: |
-          git clone https://DanilChizhikov:${{ secrets.PRIVATE_REPO_TOKEN }}@github.com/DanilChizhikov/empty-unity-project.git empty-unity-project
-
-      - name: Copy source into Unity project
-        run: |
-          mkdir -p ${{ matrix.projectPath }}/Assets/sources
-
-          shopt -s dotglob
-
-          for item in *; do
-            case "$item" in
-              ${{ matrix.projectPath }}|.git|.github|.gitignore|.gitattributes)
-                echo "Skipping $item"
-                ;;
-              *)
-                cp -R "$item" ${{ matrix.projectPath }}/Assets/sources/
-                ;;
-            esac
-          done
-
-      - name: Add package dependencies to project manifest
-        shell: bash
-        env:
-          PROJECT_PATH: ${{ matrix.projectPath }}
-        run: |
-          python3 - <<'PY'
-          import json, os, pathlib
-
-          package = json.loads(pathlib.Path("package.json").read_text(encoding="utf-8"))
-          manifest_path = pathlib.Path(os.environ["PROJECT_PATH"]) / "Packages" / "manifest.json"
-          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-
-          dependencies = manifest.setdefault("dependencies", {})
-          for name, version in package.get("dependencies", {}).items():
-              dependencies.setdefault(name, version)
-
-          manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-          print(json.dumps(dependencies, indent=2))
-          PY
+        with:
+          path: parley
 
       - name: Run Unity Tests
         id: tests
@@ -87,8 +45,9 @@ jobs:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         with:
-          unityVersion: 6000.0.63f1
-          projectPath: ${{ matrix.projectPath }}
+          unityVersion: 6000.6.8f1
+          projectPath: parley
+          packageMode: true
           testMode: editmode
           customParameters: -buildTarget StandaloneLinux64
 
