@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
@@ -11,9 +12,9 @@ namespace DTech.Parley.Editor.UI
         private const float ListIndentWidth = 14.0f;
 
         private readonly List<MarkdownBlock> _blocks = new ();
-        private readonly List<string> _signatures = new ();
 
         private string _source;
+        private string _text;
 
         public MarkdownView()
         {
@@ -29,24 +30,23 @@ namespace DTech.Parley.Editor.UI
             header.AddToClassList("pl-md-code__header");
             header.Add(ParleyStyles.Text(string.IsNullOrEmpty(language) ? "code" : language == "error" ? "Error" : language, "pl-md-code__lang"));
             header.Add(ParleyStyles.Spacer());
-            Button copy = ParleyStyles.Button("Copy", null, "pl-button--small");
+            Button copy = ParleyIcons.IconButton(ParleyIcon.Copy, "Copy", null, "pl-md-code__copy");
             copy.tooltip = "Copy to clipboard";
             copy.clicked += () =>
             {
                 EditorGUIUtility.systemCopyBuffer = content.Code;
-                copy.text = "Copied";
-                copy.schedule.Execute(() => copy.text = "Copy").ExecuteLater(CopiedResetMs);
+                ParleyIcons.SetButton(copy, ParleyIcon.Check, "Copied");
+                copy.schedule.Execute(() => ParleyIcons.SetButton(copy, ParleyIcon.Copy, "Copy")).ExecuteLater(CopiedResetMs);
             };
 
             header.Add(copy);
             container.Add(header);
             ScrollView scroll = new ScrollView(ScrollViewMode.VerticalAndHorizontal);
             scroll.AddToClassList("pl-md-code__scroll");
-            content.Label = new Label(content.Render()) { enableRichText = true };
-            content.Label.selection.isSelectable = true;
-            content.Label.AddToClassList("pl-md-code__text");
-            ParleyStyles.UseMonospace(content.Label);
-            scroll.Add(content.Label);
+            content.Body = new ChunkedText(content.Render, CreateCodeLabel);
+            content.Body.AddToClassList("pl-md-code__body");
+            content.Body.SetText(code);
+            scroll.Add(content.Body);
             container.Add(scroll);
             return container;
         }
@@ -59,19 +59,36 @@ namespace DTech.Parley.Editor.UI
             }
 
             _source = markdown;
-            List<MarkdownBlock> blocks = MarkdownParser.Parse(markdown);
-            int keep = 0;
-            while (keep < blocks.Count && keep < _signatures.Count && keep < childCount && blocks[keep].Signature == _signatures[keep])
+            string text = MarkdownParser.Normalize(markdown);
+
+            // A streaming reply only grows at its end. Blocks before the last two cannot change then, so only the
+            // tail is parsed again and the kept blocks stay as they are.
+            int reused = 0;
+            List<MarkdownBlock> parsed;
+            if (_text != null && _blocks.Count > 2 && childCount == _blocks.Count && text.StartsWith(_text, StringComparison.Ordinal))
             {
+                reused = _blocks.Count - 2;
+                parsed = MarkdownParser.Parse(text, _blocks[reused].StartOffset);
+            }
+            else
+            {
+                parsed = MarkdownParser.Parse(text, 0);
+            }
+
+            _text = text;
+            int total = reused + parsed.Count;
+            int keep = reused;
+            while (keep < total && keep < _blocks.Count && keep < childCount && parsed[keep - reused].ContentEquals(_blocks[keep]))
+            {
+                _blocks[keep] = parsed[keep - reused];
                 keep++;
             }
 
             // While a reply streams, only its last block grows. Updating that element keeps its scroll position and
             // text selection and avoids rebuilding code blocks on every delta.
-            if (keep < blocks.Count && keep < _blocks.Count && keep < childCount && TryUpdateInPlace(this[keep], _blocks[keep], blocks[keep]))
+            if (keep < total && keep < _blocks.Count && keep < childCount && TryUpdateInPlace(this[keep], _blocks[keep], parsed[keep - reused]))
             {
-                _blocks[keep] = blocks[keep];
-                _signatures[keep] = blocks[keep].Signature;
+                _blocks[keep] = parsed[keep - reused];
                 keep++;
             }
 
@@ -80,18 +97,31 @@ namespace DTech.Parley.Editor.UI
                 RemoveAt(childCount - 1);
             }
 
-            if (_signatures.Count > keep)
+            if (_blocks.Count > keep)
             {
-                _signatures.RemoveRange(keep, _signatures.Count - keep);
                 _blocks.RemoveRange(keep, _blocks.Count - keep);
             }
 
-            for (int i = keep; i < blocks.Count; i++)
+            for (int i = keep; i < total; i++)
             {
-                Add(Build(blocks[i]));
-                _blocks.Add(blocks[i]);
-                _signatures.Add(blocks[i].Signature);
+                MarkdownBlock block = parsed[i - reused];
+                Add(Build(block));
+                _blocks.Add(block);
             }
+        }
+
+        private static Label CreateCodeLabel()
+        {
+            Label label = new Label { enableRichText = true };
+            label.selection.isSelectable = true;
+            label.AddToClassList("pl-md-code__text");
+            ParleyStyles.UseMonospace(label);
+            return label;
+        }
+
+        private static Label CreateParagraphLabel()
+        {
+            return ParleyStyles.RichLabel(string.Empty, "pl-md-p");
         }
 
         private static bool TryUpdateInPlace(VisualElement element, MarkdownBlock previous, MarkdownBlock next)
@@ -110,11 +140,24 @@ namespace DTech.Parley.Editor.UI
                     }
 
                     content.Code = next.Text;
-                    content.Label.text = content.Render();
+                    content.Body.SetText(next.Text);
                     return true;
                 case MarkdownBlockType.Heading:
+                    if (!(element is Label heading))
+                    {
+                        return false;
+                    }
+
+                    heading.text = InlineMarkdown.ToRichText(next.Text);
+                    return true;
                 case MarkdownBlockType.Paragraph:
-                    if (!(element is Label label))
+                    if (element is ChunkedText chunks)
+                    {
+                        chunks.SetText(next.Text);
+                        return true;
+                    }
+
+                    if (!(element is Label label) || ChunkedText.IsLong(next.Text))
                     {
                         return false;
                     }
@@ -148,6 +191,14 @@ namespace DTech.Parley.Editor.UI
                     rule.AddToClassList("pl-md-rule");
                     return rule;
                 default:
+                    if (ChunkedText.IsLong(block.Text))
+                    {
+                        ChunkedText chunks = new ChunkedText(InlineMarkdown.ToRichText, CreateParagraphLabel);
+                        chunks.AddToClassList("pl-md-p-chunks");
+                        chunks.SetText(block.Text);
+                        return chunks;
+                    }
+
                     return ParleyStyles.RichLabel(InlineMarkdown.ToRichText(block.Text), "pl-md-p");
             }
         }
@@ -161,7 +212,7 @@ namespace DTech.Parley.Editor.UI
                 VisualElement row = new VisualElement();
                 row.AddToClassList("pl-md-list__item");
                 row.style.marginLeft = item.Indent * ListIndentWidth;
-                row.Add(ParleyStyles.Text(Bullet(item), "pl-md-list__bullet"));
+                row.Add(Bullet(item));
                 row.Add(ParleyStyles.RichLabel(InlineMarkdown.ToRichText(item.Text), "pl-md-list__text"));
                 list.Add(row);
             }
@@ -169,19 +220,21 @@ namespace DTech.Parley.Editor.UI
             return list;
         }
 
-        private static string Bullet(MarkdownListItem item)
+        private static VisualElement Bullet(MarkdownListItem item)
         {
             if (item.Checked.HasValue)
             {
-                return item.Checked.Value ? "☑" : "☐";
+                VisualElement box = ParleyIcons.Create(item.Checked.Value ? ParleyIcon.SquareCheck : ParleyIcon.Square, "pl-md-list__check");
+                box.EnableInClassList("pl-md-list__check--done", item.Checked.Value);
+                return box;
             }
 
             if (char.IsDigit(item.Marker[0]))
             {
-                return item.Marker;
+                return ParleyStyles.Text(item.Marker, "pl-md-list__bullet");
             }
 
-            return item.Indent % 2 == 0 ? "•" : "◦";
+            return ParleyStyles.Text(item.Indent % 2 == 0 ? "•" : "◦", "pl-md-list__bullet");
         }
 
         private static VisualElement BuildTable(MarkdownBlock block)
@@ -217,11 +270,17 @@ namespace DTech.Parley.Editor.UI
             public string Code;
             public string Language;
             public bool Highlight;
-            public Label Label;
+            public ChunkedText Body;
 
-            public string Render()
+            public string Render(string part)
             {
-                return Highlight ? CodeHighlighter.Highlight(Code, Language) : InlineMarkdown.Escape(Code);
+                // Code labels keep whitespace; a tab would jump to TextCore's wide tab stop, so it becomes four spaces.
+                if (part.IndexOf('\t') >= 0)
+                {
+                    part = part.Replace("\t", "    ");
+                }
+
+                return Highlight ? CodeHighlighter.Highlight(part, Language) : InlineMarkdown.Escape(part);
             }
         }
     }

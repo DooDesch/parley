@@ -37,6 +37,47 @@ namespace DTech.Parley.Tests.EditorMode
         }
 
         [Test]
+        public void LongStreamingParagraphOnlyUpdatesItsLastChunk()
+        {
+            MarkdownView view = new MarkdownView();
+            string text = "Intro\n\n" + Lines("line", 90);
+            view.SetMarkdown(text);
+            VisualElement chunks = view[1];
+            Label first = (Label)chunks[0];
+            string firstText = first.text;
+
+            view.SetMarkdown(text + " grows");
+
+            Assert.AreSame(chunks, view[1]);
+            Assert.AreEqual(3, chunks.childCount);
+            Assert.AreSame(first, chunks[0]);
+            Assert.AreEqual(firstText, first.text);
+            StringAssert.Contains("grows", ((Label)chunks[2]).text);
+        }
+
+        [Test]
+        public void IncrementalParseMatchesFullParse()
+        {
+            string full = "# Title\n\nSome text\n\n- a\n- b\n\n| x | y |\n|---|---|\n| 1 | 2 |\n\n```cs\nint a;\n```\n\nTail paragraph\nmore";
+            MarkdownView view = new MarkdownView();
+            for (int length = 1; length <= full.Length; length += 3)
+            {
+                view.SetMarkdown(full.Substring(0, length));
+            }
+
+            view.SetMarkdown(full);
+            MarkdownView fresh = new MarkdownView();
+            fresh.SetMarkdown(full);
+
+            Assert.AreEqual(fresh.childCount, view.childCount);
+            for (int i = 0; i < fresh.childCount; i++)
+            {
+                Assert.AreEqual(fresh[i].GetType(), view[i].GetType());
+                CollectionAssert.AreEqual(fresh[i].GetClasses(), view[i].GetClasses());
+            }
+        }
+
+        [Test]
         public void ChangedBlockTypeIsRebuilt()
         {
             MarkdownView view = new MarkdownView();
@@ -47,6 +88,22 @@ namespace DTech.Parley.Tests.EditorMode
 
             Assert.AreEqual(2, view.childCount);
             Assert.AreNotSame(before, view[1]);
+        }
+
+        private static string Lines(string prefix, int count)
+        {
+            System.Text.StringBuilder builder = new System.Text.StringBuilder();
+            for (int i = 0; i < count; i++)
+            {
+                if (i > 0)
+                {
+                    builder.Append('\n');
+                }
+
+                builder.Append(prefix).Append(' ').Append(i);
+            }
+
+            return builder.ToString();
         }
     }
 }

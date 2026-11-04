@@ -1,0 +1,38 @@
+namespace DTech.Parley.Editor.UI
+{
+    internal enum ParleyIcon
+    {
+        Check,
+        X,
+        Copy,
+        ChevronRight,
+        ChevronDown,
+        Loader,
+        CircleCheck,
+        CircleX,
+        CircleMinus,
+        Circle,
+        CircleDot,
+        Terminal,
+        FileText,
+        FilePen,
+        FilePlus,
+        Search,
+        ListTodo,
+        Globe,
+        Bot,
+        Wrench,
+        Square,
+        SquareCheck,
+        Paperclip,
+        ArrowUp,
+        Stop,
+        Info,
+        TriangleAlert,
+        CircleAlert,
+        Settings,
+        Map,
+        MessageCircleQuestion,
+        NotebookPen,
+    }
+}
