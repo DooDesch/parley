@@ -92,5 +92,80 @@ namespace DTech.Parley.Tests.EditorMode
             Assert.AreEqual("toolu_agent", sink.UsageReports[2].ParentToolUseId);
             Assert.AreEqual("claude-haiku-5-5", sink.UsageReports[2].Model);
         }
+
+        [Test]
+        public void InterruptedTurnIsReportedAsStoppedNotAsError()
+        {
+            RecordingSink sink = new RecordingSink();
+            ClaudeStreamMapper mapper = new ClaudeStreamMapper(sink);
+            mapper.MarkInterruptRequested();
+            mapper.Handle(JObject.Parse("{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[Request interrupted by user]\"}]}}"));
+            mapper.Handle(JObject.Parse("{\"type\":\"result\",\"subtype\":\"error_during_execution\",\"is_error\":true,\"num_turns\":1,\"terminal_reason\":\"aborted_streaming\",\"errors\":[\"[ede_diagnostic] aborted\"]}"));
+
+            CollectionAssert.AreEqual(new[] { "Info:Stopped." }, sink.Notices);
+            Assert.IsTrue(sink.Turns[0].WasInterrupted);
+            Assert.IsTrue(sink.Turns[0].IsError);
+        }
+
+        [Test]
+        public void AbortedTerminalReasonCountsAsStoppedWithoutLocalFlag()
+        {
+            RecordingSink sink = new RecordingSink();
+            ClaudeStreamMapper mapper = new ClaudeStreamMapper(sink);
+            mapper.Handle(JObject.Parse("{\"type\":\"result\",\"subtype\":\"error_during_execution\",\"is_error\":true,\"terminal_reason\":\"aborted_tools\"}"));
+
+            CollectionAssert.AreEqual(new[] { "Info:Stopped." }, sink.Notices);
+        }
+
+        [Test]
+        public void ErrorAfterInterruptedTurnIsReportedAgain()
+        {
+            RecordingSink sink = new RecordingSink();
+            ClaudeStreamMapper mapper = new ClaudeStreamMapper(sink);
+            mapper.MarkInterruptRequested();
+            mapper.Handle(JObject.Parse("{\"type\":\"result\",\"subtype\":\"error_during_execution\",\"is_error\":true}"));
+            mapper.Handle(JObject.Parse("{\"type\":\"result\",\"subtype\":\"error_max_turns\",\"is_error\":true}"));
+
+            Assert.AreEqual("Info:Stopped.", sink.Notices[0]);
+            StringAssert.StartsWith("Error:Turn ended with error_max_turns", sink.Notices[1]);
+            Assert.IsFalse(sink.Turns[1].WasInterrupted);
+        }
+
+        [Test]
+        public void RepeatedRateLimitWarningIsShownOnce()
+        {
+            RecordingSink sink = new RecordingSink();
+            ClaudeStreamMapper mapper = new ClaudeStreamMapper(sink);
+            string warning = "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"allowed_warning\",\"resetsAt\":1893456000}}";
+            mapper.Handle(JObject.Parse(warning));
+            mapper.Handle(JObject.Parse(warning));
+            mapper.Handle(JObject.Parse("{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"allowed\"}}"));
+            mapper.Handle(JObject.Parse(warning));
+
+            Assert.AreEqual(2, sink.Notices.Count);
+            StringAssert.StartsWith("Warning:Rate limit: allowed_warning", sink.Notices[0]);
+        }
+
+        [Test]
+        public void CompactingStatusIsAnnounced()
+        {
+            RecordingSink sink = new RecordingSink();
+            ClaudeStreamMapper mapper = new ClaudeStreamMapper(sink);
+            mapper.Handle(JObject.Parse("{\"type\":\"system\",\"subtype\":\"status\",\"status\":\"requesting\"}"));
+            mapper.Handle(JObject.Parse("{\"type\":\"system\",\"subtype\":\"status\",\"status\":\"compacting\"}"));
+
+            CollectionAssert.AreEqual(new[] { "Info:Compacting conversation…" }, sink.Notices);
+        }
+
+        [TestCase("Invalid API key · Please run /login", true)]
+        [TestCase("Error: OAuth token has expired. Please obtain a new token.", true)]
+        [TestCase("Not logged in · Please run /login", true)]
+        [TestCase("MCP server \"github\" failed: 401 Unauthorized", false)]
+        [TestCase("hook login-check exited with 1", false)]
+        [TestCase("", false)]
+        public void SignInProblemIsDetectedFromSpecificPhrases(string stderr, bool expected)
+        {
+            Assert.AreEqual(expected, ClaudeCodeBackend.LooksLikeSignInProblem(stderr));
+        }
     }
 }

@@ -10,6 +10,7 @@ namespace DTech.Parley.Editor.UI
         private const long CopiedResetMs = 1200;
         private const float ListIndentWidth = 14.0f;
 
+        private readonly List<MarkdownBlock> _blocks = new ();
         private readonly List<string> _signatures = new ();
 
         private string _source;
@@ -21,7 +22,8 @@ namespace DTech.Parley.Editor.UI
 
         public static VisualElement CodeBlock(string code, string language, bool highlight = true)
         {
-            VisualElement container = new VisualElement();
+            CodeBlockContent content = new CodeBlockContent { Code = code, Language = language, Highlight = highlight };
+            VisualElement container = new VisualElement { userData = content };
             container.AddToClassList("pl-md-code");
             VisualElement header = new VisualElement();
             header.AddToClassList("pl-md-code__header");
@@ -31,7 +33,7 @@ namespace DTech.Parley.Editor.UI
             copy.tooltip = "Copy to clipboard";
             copy.clicked += () =>
             {
-                EditorGUIUtility.systemCopyBuffer = code;
+                EditorGUIUtility.systemCopyBuffer = content.Code;
                 copy.text = "Copied";
                 copy.schedule.Execute(() => copy.text = "Copy").ExecuteLater(CopiedResetMs);
             };
@@ -40,11 +42,11 @@ namespace DTech.Parley.Editor.UI
             container.Add(header);
             ScrollView scroll = new ScrollView(ScrollViewMode.VerticalAndHorizontal);
             scroll.AddToClassList("pl-md-code__scroll");
-            Label label = new Label(highlight ? CodeHighlighter.Highlight(code, language) : InlineMarkdown.Escape(code)) { enableRichText = true };
-            label.selection.isSelectable = true;
-            label.AddToClassList("pl-md-code__text");
-            ParleyStyles.UseMonospace(label);
-            scroll.Add(label);
+            content.Label = new Label(content.Render()) { enableRichText = true };
+            content.Label.selection.isSelectable = true;
+            content.Label.AddToClassList("pl-md-code__text");
+            ParleyStyles.UseMonospace(content.Label);
+            scroll.Add(content.Label);
             container.Add(scroll);
             return container;
         }
@@ -64,6 +66,15 @@ namespace DTech.Parley.Editor.UI
                 keep++;
             }
 
+            // While a reply streams, only its last block grows. Updating that element keeps its scroll position and
+            // text selection and avoids rebuilding code blocks on every delta.
+            if (keep < blocks.Count && keep < _blocks.Count && keep < childCount && TryUpdateInPlace(this[keep], _blocks[keep], blocks[keep]))
+            {
+                _blocks[keep] = blocks[keep];
+                _signatures[keep] = blocks[keep].Signature;
+                keep++;
+            }
+
             while (childCount > keep)
             {
                 RemoveAt(childCount - 1);
@@ -72,12 +83,46 @@ namespace DTech.Parley.Editor.UI
             if (_signatures.Count > keep)
             {
                 _signatures.RemoveRange(keep, _signatures.Count - keep);
+                _blocks.RemoveRange(keep, _blocks.Count - keep);
             }
 
             for (int i = keep; i < blocks.Count; i++)
             {
                 Add(Build(blocks[i]));
+                _blocks.Add(blocks[i]);
                 _signatures.Add(blocks[i].Signature);
+            }
+        }
+
+        private static bool TryUpdateInPlace(VisualElement element, MarkdownBlock previous, MarkdownBlock next)
+        {
+            if (previous.Type != next.Type || previous.Level != next.Level || previous.Language != next.Language)
+            {
+                return false;
+            }
+
+            switch (next.Type)
+            {
+                case MarkdownBlockType.Code:
+                    if (!(element.userData is CodeBlockContent content))
+                    {
+                        return false;
+                    }
+
+                    content.Code = next.Text;
+                    content.Label.text = content.Render();
+                    return true;
+                case MarkdownBlockType.Heading:
+                case MarkdownBlockType.Paragraph:
+                    if (!(element is Label label))
+                    {
+                        return false;
+                    }
+
+                    label.text = InlineMarkdown.ToRichText(next.Text);
+                    return true;
+                default:
+                    return false;
             }
         }
 
@@ -165,6 +210,19 @@ namespace DTech.Parley.Editor.UI
             }
 
             return scroll;
+        }
+
+        private sealed class CodeBlockContent
+        {
+            public string Code;
+            public string Language;
+            public bool Highlight;
+            public Label Label;
+
+            public string Render()
+            {
+                return Highlight ? CodeHighlighter.Highlight(Code, Language) : InlineMarkdown.Escape(Code);
+            }
         }
     }
 }

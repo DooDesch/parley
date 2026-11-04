@@ -181,8 +181,9 @@ namespace DTech.Parley.Editor
 			{
 				return _process == null || _process.WaitForExit(milliseconds);
 			}
-			catch (Exception)
+			catch (Exception exception)
 			{
+				Debug.LogWarning("[Parley] Could not wait for process exit, treating it as exited: " + exception.Message);
 				return true;
 			}
 		}
@@ -287,7 +288,11 @@ namespace DTech.Parley.Editor
 		{
 			if (overflow)
 			{
-				MainThread.Post(() => AddStderr($"[parley] dropped an output line longer than {_maxLineChars} characters"));
+				MainThread.Post(() =>
+				{
+					Debug.LogWarning($"[Parley] Dropped an output line longer than {_maxLineChars} characters.");
+					AddStderr($"[parley] dropped an output line longer than {_maxLineChars} characters");
+				});
 				return;
 			}
 
@@ -313,8 +318,9 @@ namespace DTech.Parley.Editor
 				_process.WaitForExit(ExitWaitMs);
 				code = _process.HasExited ? _process.ExitCode : -1;
 			}
-			catch (InvalidOperationException)
+			catch (InvalidOperationException exception)
 			{
+				Debug.Log("[Parley] Exit code unavailable, reporting -1: " + exception.Message);
 			}
 			catch (Exception exception)
 			{

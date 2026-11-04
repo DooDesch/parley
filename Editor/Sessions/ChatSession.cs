@@ -30,6 +30,14 @@ namespace DTech.Parley.Editor.Sessions
 
 		private const double DeltaFlushIntervalSeconds = 0.05;
 
+		private static readonly HashSet<string> ReadOnlyTools = new ()
+		{
+			"Read", "Glob", "Grep", "LS", "WebFetch", "WebSearch", "ToolSearch", "AskUserQuestion",
+			"TodoWrite", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList", "TaskOutput", "TaskStop",
+			"Agent", "Task", "Skill", "EnterPlanMode", PendingRequest.ExitPlanModeTool,
+			"BashOutput", "KillShell", "ListMcpResourcesTool", "ReadMcpResourceTool",
+		};
+
 		private readonly Dictionary<string, TranscriptBlock> _blocksByKey = new ();
 		private readonly Dictionary<string, TranscriptBlock> _blocksByToolId = new ();
 		private readonly Dictionary<string, TranscriptBlock> _requestBlocks = new ();
@@ -101,6 +109,7 @@ namespace DTech.Parley.Editor.Sessions
 		private bool _sending;
 		private bool _disposed;
 		private bool _deltaFlushScheduled;
+		private bool _turnMayHaveChangedFiles;
 		private double _lastDeltaFlush;
 		private string _appliedMcpFingerprint;
 		private string _appliedSkillFingerprint;
@@ -1094,6 +1103,11 @@ namespace DTech.Parley.Editor.Sessions
 					_blocksByToolId[request.ToolUseId] = block;
 				}
 
+				if (!IsReadOnlyTool(request.ToolName))
+				{
+					_turnMayHaveChangedFiles = true;
+				}
+
 				try
 				{
 					TrackToolUse(block);
@@ -1275,11 +1289,44 @@ namespace DTech.Parley.Editor.Sessions
 				Record.CostUsd = result.CostUsd.Value;
 			}
 
+			FlushDeltas();
+			FinishOpenBlocks();
 			_currentAssistant = null;
 			Save();
-			EditorApplication.delayCall -= RefreshAssetsIfIdle;
-			EditorApplication.delayCall += RefreshAssetsIfIdle;
+			if (_turnMayHaveChangedFiles)
+			{
+				_turnMayHaveChangedFiles = false;
+				EditorApplication.delayCall -= RefreshAssetsIfIdle;
+				EditorApplication.delayCall += RefreshAssetsIfIdle;
+			}
+
 			RaiseState();
+		}
+
+		/// <summary>
+		/// True for tools that only read or plan. Any other tool, including unknown and MCP tools, may have written
+		/// files, so the turn ends with an asset refresh.
+		/// </summary>
+		internal static bool IsReadOnlyTool(string toolName)
+		{
+			return !string.IsNullOrEmpty(toolName) && ReadOnlyTools.Contains(toolName);
+		}
+
+		// A turn that ends while tools or text are still streaming (Stop, process exit) leaves blocks that would
+		// otherwise keep showing a spinner or a running timer.
+		private void FinishOpenBlocks()
+		{
+			foreach (TranscriptBlock block in _blocksByKey.Values)
+			{
+				if (block.IsFinished)
+				{
+					continue;
+				}
+
+				block.IsFinished = true;
+				block.PartialInputJson = null;
+				OnBlockChanged?.Invoke(block);
+			}
 		}
 
 		void IAgentSink.AuthRequired(string message)

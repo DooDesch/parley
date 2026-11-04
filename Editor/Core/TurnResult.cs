@@ -5,6 +5,7 @@ namespace DTech.Parley.Editor
     internal sealed class TurnResult
     {
         public bool IsError { get; set; }
+        public bool WasInterrupted { get; set; }
         public string Subtype { get; set; }
         public string ResultText { get; set; }
         public long DurationMs { get; set; }

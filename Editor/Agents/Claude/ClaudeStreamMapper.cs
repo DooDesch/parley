@@ -11,6 +11,9 @@ namespace DTech.Parley.Editor.Agents.Claude
 	{
 		private static readonly Regex CommandTags = new ("</?(local-command-stdout|local-command-stderr|command-name|command-message|command-args|bash-stdout|bash-stderr)>");
 
+		// The CLI echoes this marker as a user message after an interrupt; the "Stopped." notice replaces it.
+		private const string InterruptedMarker = "[Request interrupted by user";
+
 		private readonly IAgentSink _sink;
 		private readonly Dictionary<string, string> _currentMessage = new ();
 		private readonly Dictionary<string, int> _finalBlocks = new ();
@@ -21,10 +24,29 @@ namespace DTech.Parley.Editor.Agents.Claude
 		public string ConfirmedSessionId { get; private set; }
 
 		private bool _assistantTextThisTurn;
+		private bool _interruptRequested;
+		private string _lastRateLimitNotice;
 
 		public ClaudeStreamMapper(IAgentSink sink)
 		{
 			_sink = sink;
+		}
+
+		/// <summary>
+		/// Marks the running turn as stopped by the user, so its error result is reported as "Stopped." instead of a failure.
+		/// </summary>
+		public void MarkInterruptRequested()
+		{
+			_interruptRequested = true;
+		}
+
+		/// <summary>
+		/// Drops per-turn state when a turn ends without a result message (process exit or forced restart).
+		/// </summary>
+		public void AbandonTurn()
+		{
+			_interruptRequested = false;
+			_assistantTextThisTurn = false;
 		}
 
 		public static string Key(string parent, string messageId, int index)
@@ -45,6 +67,8 @@ namespace DTech.Parley.Editor.Agents.Claude
 			_finalBlocks.Clear();
 			_currentModel.Clear();
 			_assistantTextThisTurn = false;
+			_interruptRequested = false;
+			_lastRateLimitNotice = null;
 		}
 
 		public void Handle(JObject message)
@@ -135,6 +159,13 @@ namespace DTech.Parley.Editor.Agents.Claude
 				case "task_notification":
 				case "task_updated":
 					_sink.BackgroundTaskChanged(ParseTask(subtype, message));
+					break;
+				case "status":
+					if ((string)message["status"] == "compacting")
+					{
+						_sink.Notice(NoticeLevel.Info, "Compacting conversation…");
+					}
+
 					break;
 				case "compact_boundary":
 					_sink.Notice(NoticeLevel.Info, "Conversation compacted.");
@@ -357,18 +388,27 @@ namespace DTech.Parley.Editor.Agents.Claude
 				ConfirmedSessionId = SessionId;
 			}
 
+			string terminalReason = (string)message["terminal_reason"];
+			bool aborted = terminalReason != null && terminalReason.StartsWith("aborted", StringComparison.Ordinal);
+			result.WasInterrupted = result.IsError && (_interruptRequested || aborted);
+
 			if (!_assistantTextThisTurn && !result.IsError && !string.IsNullOrWhiteSpace(result.ResultText))
 			{
 				_sink.Notice(NoticeLevel.Info, CleanCommandText(result.ResultText));
 			}
 
-			if (result.IsError)
+			if (result.WasInterrupted)
+			{
+				_sink.Notice(NoticeLevel.Info, "Stopped.");
+			}
+			else if (result.IsError)
 			{
 				string detail = result.Errors.Count > 0 ? string.Join("\n", result.Errors) : result.ResultText ?? result.Subtype;
 				_sink.Notice(NoticeLevel.Error, "Turn ended with " + result.Subtype + (string.IsNullOrEmpty(detail) ? string.Empty : ": " + detail));
 			}
 
 			_assistantTextThisTurn = false;
+			_interruptRequested = false;
 			_sink.TurnCompleted(result);
 		}
 
@@ -384,12 +424,20 @@ namespace DTech.Parley.Editor.Agents.Claude
 			string status = (string)info?["status"];
 			if (string.IsNullOrEmpty(status) || status == "allowed")
 			{
+				_lastRateLimitNotice = null;
 				return;
 			}
 
 			DateTimeOffset? resets = RateLimitTimes.Parse(info["resetsAt"]);
 			string resetsText = resets.HasValue ? " (resets at " + resets.Value.ToLocalTime().ToString("g", CultureInfo.InvariantCulture) + ")" : string.Empty;
-			_sink.Notice(NoticeLevel.Warning, "Rate limit: " + status + resetsText);
+			string notice = "Rate limit: " + status + resetsText;
+			if (notice == _lastRateLimitNotice)
+			{
+				return;
+			}
+
+			_lastRateLimitNotice = notice;
+			_sink.Notice(NoticeLevel.Warning, notice);
 		}
 
 		private void HandleAuthStatus(JObject message)
@@ -410,6 +458,11 @@ namespace DTech.Parley.Editor.Agents.Claude
 		private void EmitUserNotice(string text)
 		{
 			string cleaned = CleanCommandText(text);
+			if (cleaned.StartsWith(InterruptedMarker, StringComparison.Ordinal))
+			{
+				return;
+			}
+
 			if (cleaned.Length > 0)
 			{
 				_sink.Notice(NoticeLevel.Info, cleaned);
