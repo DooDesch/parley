@@ -1,3 +1,4 @@
+using DTech.Parley.Editor;
 using DTech.Parley.Editor.Panels;
 using NUnit.Framework;
 using UnityEditor;
@@ -93,10 +94,10 @@ namespace DTech.Parley.Tests.EditorMode
             PanelTestConfig config = ScriptableObject.CreateInstance<PanelTestConfig>();
             try
             {
-                PanelSpec spec = Spec(config.GetInstanceID().ToString());
+                PanelSpec spec = Spec(UnityObjectPaths.EntityIdReference(config));
                 PanelTargetResolver resolver = new PanelTargetResolver(spec);
 
-                Assert.IsNotNull(resolver.Resolve("cfg"));
+                Assert.AreEqual(config, resolver.Resolve("cfg"));
                 Assert.AreEqual(0, spec.Ids.Count);
                 Assert.IsFalse(resolver.SpecChanged);
             }

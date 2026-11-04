@@ -46,7 +46,7 @@ namespace DTech.Parley.Editor.Panels
 			}
 
 			string guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(asset));
-			return string.IsNullOrEmpty(guid) ? asset.GetInstanceID().ToString() : guid;
+			return string.IsNullOrEmpty(guid) ? UnityObjectPaths.EntityIdReference(asset) : guid;
 		}
 	}
 }

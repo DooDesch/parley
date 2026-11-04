@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using DTech.Parley.Editor;
 using DTech.Parley.Editor.Panels;
 using NUnit.Framework;
 using UnityEditor;
@@ -27,7 +28,7 @@ namespace DTech.Parley.Tests.EditorMode
         [Test]
         public void BuildsFieldsInsideContainers()
         {
-            using PanelBuilder builder = Builder(Parse(@"{ ""title"": ""T"", ""targets"": { ""cfg"": """ + _config.GetInstanceID() + @""" }, ""items"": [
+            using PanelBuilder builder = Builder(Parse(@"{ ""title"": ""T"", ""targets"": { ""cfg"": """ + UnityObjectPaths.EntityIdReference(_config) + @""" }, ""items"": [
                 { ""type"": ""header"", ""text"": ""Stats"" },
                 { ""type"": ""field"", ""target"": ""cfg"", ""path"": ""_health"", ""label"": ""HP"" },
                 { ""type"": ""group"", ""label"": ""More"", ""foldout"": true, ""items"": [
@@ -67,7 +68,7 @@ namespace DTech.Parley.Tests.EditorMode
         [Test]
         public void ShowsErrorForUnknownPropertyPath()
         {
-            using PanelBuilder builder = Builder(Parse(@"{ ""title"": ""T"", ""targets"": { ""cfg"": """ + _config.GetInstanceID() + @""" }, ""items"": [
+            using PanelBuilder builder = Builder(Parse(@"{ ""title"": ""T"", ""targets"": { ""cfg"": """ + UnityObjectPaths.EntityIdReference(_config) + @""" }, ""items"": [
                 { ""type"": ""field"", ""target"": ""cfg"", ""path"": ""_nope"" }
             ] }"));
 
@@ -109,7 +110,7 @@ namespace DTech.Parley.Tests.EditorMode
         [Test]
         public void KeepsFoldoutStateAcrossRebuilds()
         {
-            string json = @"{ ""title"": ""T"", ""targets"": { ""cfg"": """ + _config.GetInstanceID() + @""" }, ""items"": [
+            string json = @"{ ""title"": ""T"", ""targets"": { ""cfg"": """ + UnityObjectPaths.EntityIdReference(_config) + @""" }, ""items"": [
                 { ""type"": ""group"", ""label"": ""More"", ""foldout"": true, ""items"": [
                     { ""type"": ""field"", ""target"": ""cfg"", ""path"": ""_health"" }
                 ] }

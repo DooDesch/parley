@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.2-unity66.1] - 2026-11-04
+
+- Target Unity 6.6 and use full-width entity IDs for selection, inspector lookup and panel targets.
+- Keep saved panel references backed by asset GUIDs, hierarchy paths and Unity GlobalObjectIds.
+- Run the fork's Edit Mode workflow against Unity 6.6 with the package checked out locally.
+
 ## [0.3.1] - 2026-10-23
 
 ### Fixed

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using UnityEngine;
 using Object = UnityEngine.Object;
 
 namespace DTech.Parley.Editor.Panels
@@ -27,7 +28,7 @@ namespace DTech.Parley.Editor.Panels
 		private readonly PanelSpec _spec;
 		private readonly Dictionary<string, Object> _resolved = new (StringComparer.Ordinal);
 		private readonly Dictionary<string, PanelTargetStatus> _status = new (StringComparer.Ordinal);
-		private readonly Dictionary<string, int> _captured = new (StringComparer.Ordinal);
+		private readonly Dictionary<string, EntityId> _captured = new (StringComparer.Ordinal);
 		private readonly List<string> _aliases = new ();
 
 		public PanelTargetResolver(PanelSpec spec)
@@ -111,13 +112,13 @@ namespace DTech.Parley.Editor.Panels
 				return;
 			}
 
-			int instanceId = target.GetInstanceID();
-			if (_captured.TryGetValue(alias, out int known) && known == instanceId)
+			EntityId entityId = target.GetEntityId();
+			if (_captured.TryGetValue(alias, out EntityId known) && known.Equals(entityId))
 			{
 				return;
 			}
 
-			_captured[alias] = instanceId;
+			_captured[alias] = entityId;
 			if (!GlobalObjectIds.TryCapture(target, out string id))
 			{
 				return;

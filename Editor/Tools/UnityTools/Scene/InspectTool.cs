@@ -12,10 +12,10 @@ namespace DTech.Parley.Editor.Tools.UnityTools
 		public string Name => "inspect";
 
 		public string Description =>
-			"Read serialized properties of a scene object (hierarchy path), asset (Assets/... path or GUID) or instance id. Defaults to the active selection. Read-only.";
+			"Read serialized properties of a scene object (hierarchy path), asset (Assets/... path or GUID) or numeric entity ID. Defaults to the active selection. Read-only.";
 
 		public JObject InputSchema { get; } = new SchemaBuilder()
-			.String("target", "Hierarchy path ('Scene:Root/Child'), asset path, GUID or instance id. Empty = active selection.")
+			.String("target", "Hierarchy path ('Scene:Root/Child'), asset path, GUID or numeric entity ID. Empty = active selection.")
 			.String("component", "Only components whose type name contains this text.")
 			.Integer("max_properties", "Maximum properties per object (default 120).")
 			.Build();

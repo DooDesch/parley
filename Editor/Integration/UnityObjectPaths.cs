@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -105,6 +106,11 @@ namespace DTech.Parley.Editor
 			}
 		}
 
+		public static string EntityIdReference(Object target)
+		{
+			return EntityId.ToULong(target.GetEntityId()).ToString(CultureInfo.InvariantCulture);
+		}
+
 		public static Object Resolve(string target)
 		{
 			if (string.IsNullOrWhiteSpace(target))
@@ -113,9 +119,9 @@ namespace DTech.Parley.Editor
 			}
 
 			target = target.Trim();
-			if (int.TryParse(target, out int instanceId))
+			if (ulong.TryParse(target, NumberStyles.None, CultureInfo.InvariantCulture, out ulong rawId))
 			{
-				return EditorUtility.InstanceIDToObject(instanceId);
+				return EditorUtility.EntityIdToObject(EntityId.FromULong(rawId));
 			}
 
 			if (target.StartsWith("Assets/") || target.StartsWith("Packages/"))

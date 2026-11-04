@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEditor;
+using UnityEngine;
 using Object = UnityEngine.Object;
 
 namespace DTech.Parley.Editor.Panels
@@ -39,7 +40,7 @@ namespace DTech.Parley.Editor.Panels
 				hash = Mix(hash, alias);
 				hash = Mix(hash, spec.Targets.TryGetValue(alias, out string reference) ? reference : null);
 				hash = Mix(hash, UnityObjectPaths.Describe(target));
-				hash = Mix(hash, target == null ? 0 : target.GetInstanceID());
+				hash = MixObjectId(hash, target);
 			}
 
 			return hash;
@@ -71,7 +72,7 @@ namespace DTech.Parley.Editor.Panels
 					}
 
 					Object asset = AssetDatabase.LoadMainAssetAtPath(path);
-					hash = Mix(hash, asset == null ? 0 : asset.GetInstanceID());
+					hash = MixObjectId(hash, asset);
 				}
 			}
 
@@ -93,6 +94,12 @@ namespace DTech.Parley.Editor.Panels
 			}
 
 			return hash;
+		}
+
+		private static ulong MixObjectId(ulong hash, Object target)
+		{
+			ulong id = target == null ? 0UL : EntityId.ToULong(target.GetEntityId());
+			return (hash ^ id) * Prime;
 		}
 
 		private static ulong Mix(ulong hash, string value)

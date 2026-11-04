@@ -32,7 +32,7 @@ namespace DTech.Parley.Editor.Tools.UnityTools
             StringBuilder builder = new StringBuilder();
             foreach (Object target in selected)
             {
-                builder.Append("- ").Append(UnityObjectPaths.Describe(target)).Append(" [instanceId ").Append(target.GetInstanceID()).AppendLine("]");
+                builder.Append("- ").Append(UnityObjectPaths.Describe(target)).Append(" [entityId ").Append(UnityObjectPaths.EntityIdReference(target)).AppendLine("]");
             }
 
             return Task.FromResult(ToolResult.Ok(builder.ToString().TrimEnd()));
