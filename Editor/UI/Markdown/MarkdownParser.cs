@@ -16,12 +16,30 @@ namespace DTech.Parley.Editor.UI
 
         public static List<MarkdownBlock> Parse(string markdown)
         {
+            return Parse(Normalize(markdown), 0);
+        }
+
+        public static string Normalize(string markdown)
+        {
             if (string.IsNullOrEmpty(markdown))
+            {
+                return string.Empty;
+            }
+
+            return markdown.IndexOf('\r') >= 0 ? markdown.Replace("\r\n", "\n") : markdown;
+        }
+
+        // Parses normalized text from a line start. Block starts are the only points where the reader carries no
+        // state, so parsing from a known block's offset yields the same blocks as parsing the whole text.
+        public static List<MarkdownBlock> Parse(string normalized, int startOffset)
+        {
+            if (string.IsNullOrEmpty(normalized) || startOffset >= normalized.Length)
             {
                 return new List<MarkdownBlock>();
             }
 
-            Reader reader = new Reader(markdown.Replace("\r\n", "\n").Split('\n'));
+            string text = startOffset > 0 ? normalized.Substring(startOffset) : normalized;
+            Reader reader = new Reader(text.Split('\n'), startOffset);
             return reader.ReadAll();
         }
 
@@ -71,7 +89,30 @@ namespace DTech.Parley.Editor.UI
 
         private static bool StartsBlock(string line)
         {
+            if (!MayStartBlock(line))
+            {
+                return false;
+            }
+
             return _fence.IsMatch(line) || _heading.IsMatch(line) || _listItem.IsMatch(line) || IsQuote(line) || _rule.IsMatch(line);
+        }
+
+        // Every block marker begins with one of these characters, so plain text lines skip the regexes.
+        private static bool MayStartBlock(string line)
+        {
+            for (int i = 0; i < line.Length; i++)
+            {
+                char character = line[i];
+                if (character == ' ' || character == '\t')
+                {
+                    continue;
+                }
+
+                return character == '`' || character == '~' || character == '#' || character == '-' || character == '*' || character == '+'
+                    || character == '_' || character == '>' || char.IsDigit(character);
+            }
+
+            return false;
         }
 
         private static MarkdownListItem CreateListItem(Match match)
@@ -96,13 +137,21 @@ namespace DTech.Parley.Editor.UI
         private sealed class Reader
         {
             private readonly string[] _lines;
+            private readonly int[] _offsets;
             private readonly List<MarkdownBlock> _blocks = new ();
 
             private int _index;
 
-            public Reader(string[] lines)
+            public Reader(string[] lines, int baseOffset)
             {
                 _lines = lines;
+                _offsets = new int[lines.Length];
+                int offset = baseOffset;
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    _offsets[i] = offset;
+                    offset += lines[i].Length + 1;
+                }
             }
 
             public List<MarkdownBlock> ReadAll()
@@ -126,14 +175,14 @@ namespace DTech.Parley.Editor.UI
                     Match heading = _heading.Match(line);
                     if (heading.Success)
                     {
-                        _blocks.Add(new MarkdownBlock { Type = MarkdownBlockType.Heading, Level = heading.Groups[1].Value.Length, Text = heading.Groups[2].Value });
+                        Add(new MarkdownBlock { Type = MarkdownBlockType.Heading, Level = heading.Groups[1].Value.Length, Text = heading.Groups[2].Value }, _index);
                         _index++;
                         continue;
                     }
 
                     if (_rule.IsMatch(line))
                     {
-                        _blocks.Add(new MarkdownBlock { Type = MarkdownBlockType.Rule });
+                        Add(new MarkdownBlock { Type = MarkdownBlockType.Rule }, _index);
                         _index++;
                         continue;
                     }
@@ -162,13 +211,20 @@ namespace DTech.Parley.Editor.UI
                 return _blocks;
             }
 
+            private void Add(MarkdownBlock block, int startLine)
+            {
+                block.StartOffset = _offsets[startLine];
+                _blocks.Add(block);
+            }
+
             private bool IsTableStart(int index)
             {
-                return _lines[index].Contains("|") && index + 1 < _lines.Length && _tableSeparator.IsMatch(_lines[index + 1]);
+                return _lines[index].IndexOf('|') >= 0 && index + 1 < _lines.Length && _tableSeparator.IsMatch(_lines[index + 1]);
             }
 
             private void ReadCode(Match fence)
             {
+                int start = _index;
                 string marker = fence.Groups[1].Value;
                 MarkdownBlock block = new MarkdownBlock { Type = MarkdownBlockType.Code, Language = fence.Groups[2].Value, IsClosed = false };
                 StringBuilder code = new StringBuilder();
@@ -193,11 +249,12 @@ namespace DTech.Parley.Editor.UI
                 }
 
                 block.Text = code.ToString();
-                _blocks.Add(block);
+                Add(block, start);
             }
 
             private void ReadQuote()
             {
+                int start = _index;
                 StringBuilder text = new StringBuilder();
                 while (_index < _lines.Length && IsQuote(_lines[_index]))
                 {
@@ -210,11 +267,12 @@ namespace DTech.Parley.Editor.UI
                     _index++;
                 }
 
-                _blocks.Add(new MarkdownBlock { Type = MarkdownBlockType.Quote, Text = text.ToString() });
+                Add(new MarkdownBlock { Type = MarkdownBlockType.Quote, Text = text.ToString() }, start);
             }
 
             private void ReadList()
             {
+                int start = _index;
                 MarkdownBlock block = new MarkdownBlock { Type = MarkdownBlockType.List };
                 while (_index < _lines.Length)
                 {
@@ -249,21 +307,22 @@ namespace DTech.Parley.Editor.UI
                     break;
                 }
 
-                _blocks.Add(block);
+                Add(block, start);
             }
 
             private void ReadTable()
             {
+                int start = _index;
                 MarkdownBlock block = new MarkdownBlock { Type = MarkdownBlockType.Table };
                 block.Rows.Add(SplitRow(_lines[_index]));
                 _index += 2;
-                while (_index < _lines.Length && _lines[_index].Contains("|") && _lines[_index].Trim().Length > 0)
+                while (_index < _lines.Length && _lines[_index].IndexOf('|') >= 0 && _lines[_index].Trim().Length > 0)
                 {
                     block.Rows.Add(SplitRow(_lines[_index]));
                     _index++;
                 }
 
-                _blocks.Add(block);
+                Add(block, start);
             }
 
             private void ReadParagraph()
@@ -292,7 +351,7 @@ namespace DTech.Parley.Editor.UI
                     _index++;
                 }
 
-                _blocks.Add(new MarkdownBlock { Type = MarkdownBlockType.Paragraph, Text = text.ToString() });
+                Add(new MarkdownBlock { Type = MarkdownBlockType.Paragraph, Text = text.ToString() }, start);
             }
         }
     }

@@ -17,6 +17,7 @@ namespace DTech.Parley.Editor.UI
         private const int MinAssetQueryLength = 2;
         private const double NotificationSeconds = 2.0;
         private const string DropClass = "pl-composer--drop";
+        private const string FocusClass = "pl-composer--focus";
 
         private static readonly HashSet<string> _imageExtensions = new (StringComparer.OrdinalIgnoreCase) { ".png", ".jpg", ".jpeg", ".gif", ".webp" };
 
@@ -50,22 +51,28 @@ namespace DTech.Parley.Editor.UI
             _input.verticalScrollerVisibility = ScrollerVisibility.Auto;
             _input.RegisterCallback<KeyDownEvent>(KeyDownHandler, TrickleDown.TrickleDown);
             _input.RegisterValueChangedCallback(InputChangedHandler);
-            Add(_input);
+            _input.RegisterCallback<FocusInEvent>(_ => AddToClassList(FocusClass));
+            _input.RegisterCallback<FocusOutEvent>(_ => RemoveFromClassList(FocusClass));
+            VisualElement box = new VisualElement();
+            box.AddToClassList("pl-composer__box");
+            box.Add(_input);
             VisualElement bar = new VisualElement();
             bar.AddToClassList("pl-composer__bar");
-            _attach = ParleyStyles.Button("＋ Attach", ShowAttachMenu, "pl-button--ghost");
+            _attach = ParleyIcons.IconButton(ParleyIcon.Paperclip, null, ShowAttachMenu, "pl-button--ghost");
             _attach.tooltip = "Attach the selection, console errors, a screenshot or a file. You can also drop files here.";
             bar.Add(_attach);
             bar.Add(ParleyStyles.Spacer());
-            _stop = ParleyStyles.Button("■ Stop", () => OnStop?.Invoke(), "pl-button--danger");
+            _stop = ParleyIcons.IconButton(ParleyIcon.Stop, "Stop", () => OnStop?.Invoke(), "pl-button--danger");
             _stop.tooltip = "Stop the current reply";
-            _send = ParleyStyles.Button("Send ↵", Submit, "pl-button--primary");
+            _send = ParleyIcons.IconButton(ParleyIcon.ArrowUp, null, Submit, "pl-button--primary");
+            _send.AddToClassList("pl-composer__send");
             _limits = new LimitsButton();
             ParleyStyles.SetVisible(_limits, false);
             bar.Add(_limits);
             bar.Add(_stop);
             bar.Add(_send);
-            Add(bar);
+            box.Add(bar);
+            Add(box);
             RegisterCallback<DragEnterEvent>(_ => AddToClassList(DropClass));
             RegisterCallback<DragLeaveEvent>(_ => RemoveFromClassList(DropClass));
             RegisterCallback<DragExitedEvent>(_ => RemoveFromClassList(DropClass));
@@ -94,7 +101,7 @@ namespace DTech.Parley.Editor.UI
         public void SetBusy(bool busy)
         {
             ParleyStyles.SetVisible(_stop, busy);
-            _send.text = busy ? "Queue ↵" : "Send ↵";
+            ParleyIcons.SetButton(_send, ParleyIcon.ArrowUp, busy ? "Queue" : null);
             _send.tooltip = busy ? "Queue this message: it is sent when the current reply finishes (Enter)" : "Send (Enter)";
         }
 
@@ -158,7 +165,7 @@ namespace DTech.Parley.Editor.UI
 
                 chip.Add(ParleyStyles.Text(attachment.Label, "pl-chip-removable__label"));
                 ChatAttachment captured = attachment;
-                Button remove = ParleyStyles.Button("✕", () => RemoveAttachment(captured), "pl-button--chip");
+                Button remove = ParleyIcons.IconButton(ParleyIcon.X, null, () => RemoveAttachment(captured), "pl-button--chip");
                 remove.tooltip = "Remove";
                 chip.Add(remove);
                 _chips.Add(chip);

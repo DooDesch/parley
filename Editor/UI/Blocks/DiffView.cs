@@ -119,7 +119,7 @@ namespace DTech.Parley.Editor.UI
 
         private static Label Row(string text, string className)
         {
-            Label label = new Label(text) { enableRichText = false };
+            Label label = new Label(text.Replace("\t", "    ")) { enableRichText = false };
             label.selection.isSelectable = true;
             label.AddToClassList("pl-diff__row");
             label.AddToClassList(className);

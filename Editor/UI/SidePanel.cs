@@ -283,7 +283,9 @@ namespace DTech.Parley.Editor.UI
             bool completed = task.Status == "completed";
             VisualElement title = new VisualElement();
             title.AddToClassList("pl-task__header");
-            Label icon = ParleyStyles.Text(running ? "●" : completed ? "✓" : "✕", "pl-task__icon");
+            VisualElement icon = ParleyIcons.Create(running ? ParleyIcon.Loader : completed ? ParleyIcon.CircleCheck : ParleyIcon.CircleX, "pl-task__icon");
+            icon.pickingMode = PickingMode.Position;
+            ParleyIcons.SetSpinning(icon, running);
             icon.AddToClassList(running ? "pl-task__icon--running" : completed ? "pl-task__icon--done" : "pl-task__icon--failed");
             icon.tooltip = DescribeStatus(task.Status);
             title.Add(icon);

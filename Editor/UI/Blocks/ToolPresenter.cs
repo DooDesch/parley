@@ -95,6 +95,48 @@ namespace DTech.Parley.Editor.UI
             }
         }
 
+        public static ParleyIcon Icon(string toolName)
+        {
+            switch (toolName)
+            {
+                case "Bash":
+                case "BashOutput":
+                case "KillShell":
+                    return ParleyIcon.Terminal;
+                case "Read":
+                case ViewImageTool:
+                    return ParleyIcon.FileText;
+                case "Write":
+                    return ParleyIcon.FilePlus;
+                case "Edit":
+                case "MultiEdit":
+                case "NotebookEdit":
+                case CodexApprovals.ApplyPatchTool:
+                    return ParleyIcon.FilePen;
+                case "Glob":
+                case "Grep":
+                    return ParleyIcon.Search;
+                case "WebFetch":
+                case "WebSearch":
+                    return ParleyIcon.Globe;
+                case "Agent":
+                case "Task":
+                    return ParleyIcon.Bot;
+                case "TodoWrite":
+                case "TaskCreate":
+                case "TaskUpdate":
+                    return ParleyIcon.ListTodo;
+                case PendingRequest.ExitPlanModeTool:
+                    return ParleyIcon.Map;
+                case PendingRequest.AskUserQuestionTool:
+                    return ParleyIcon.MessageCircleQuestion;
+                case "Skill":
+                    return ParleyIcon.NotebookPen;
+                default:
+                    return ParleyIcon.Wrench;
+            }
+        }
+
         public static bool ExpandedByDefault(TranscriptBlock block)
         {
             if (block.IsError)
@@ -267,13 +309,16 @@ namespace DTech.Parley.Editor.UI
             return string.IsNullOrEmpty(path) ? string.Empty : ProjectPaths.ToProjectRelative(path);
         }
 
-        public static Label TodoLabel(string status, string text)
+        public static VisualElement TodoLabel(string status, string text)
         {
             string normalized = status ?? "pending";
-            string icon = normalized == "completed" ? "✓" : normalized == "in_progress" ? "◐" : "○";
-            Label label = ParleyStyles.Text(icon + "  " + (text ?? string.Empty), "pl-todo");
-            label.AddToClassList("pl-todo--" + normalized.Replace('_', '-'));
-            return label;
+            VisualElement row = new VisualElement();
+            row.AddToClassList("pl-todo");
+            row.AddToClassList("pl-todo--" + normalized.Replace('_', '-'));
+            ParleyIcon icon = normalized == "completed" ? ParleyIcon.CircleCheck : normalized == "in_progress" ? ParleyIcon.CircleDot : ParleyIcon.Circle;
+            row.Add(ParleyIcons.Create(icon, "pl-todo__icon"));
+            row.Add(ParleyStyles.Text(text ?? string.Empty, "pl-todo__text"));
+            return row;
         }
 
         public static string Str(JObject input, string name)
